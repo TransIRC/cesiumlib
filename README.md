@@ -1,53 +1,111 @@
-# Cesium
+# cesiumlib
 
-**Cesium** is a simple, cross-platform DNS tunneling system designed to be a modern, user-friendly replacement for [iodine](https://code.kryo.se/iodine/). It uses [cesium-core](https://github.com/TransIRC/cesium-core), a Go library for embedding DNS tunnels in any application. Cesium gives users a SOCKS5 proxy interface tunneled over DNS --- with no need for virtual interfaces like TUN/TAP, making it lightweight and portable across Linux and Windows.
+**cesiumlib** is a pure-Go library for building DNS tunnels, inspired by [iodine](https://github.com/yarrick/iodine) but designed for modern Go applications. It provides a simple, idiomatic API for tunneling TCP-like streams over DNS, making it suitable for research, penetration testing, and learning about covert networking.
 
----
+## Features
 
-## ✨ Features
+- Client/server DNS tunnel abstractions via `net.Conn` interface
+- Handles chunking, retransmission, flow control, and keepalives
+- Pluggable configuration for performance tuning
+- Pure Go, no C dependencies
+- Inspired by the robust design of iodine but modernized for Go
 
-- 🧠 **Built on `cesium-core`**: handles DNS encoding/decoding, connection multiplexing, and reliability.
-- 🧦 **SOCKS5 proxy client**: tunnel any TCP-based traffic easily (web browsers, SSH, etc).
-- 🌐 **DNS server backend**: receives tunneled data via DNS queries and forwards it transparently.
-- 🛠 **Cross-platform**: no kernel modules, no admin rights --- just Go binaries.
-- 🔐 **Password protection**: basic authentication support out of the box.
-- 🔄 **Inspired by Iodine**: but easier to set up, script, and run in diverse environments.
+## Why cesiumlib?
 
+[**iodine**](https://github.com/yarrick/iodine) set the standard for DNS tunneling using C. **cesiumlib** re-imagines that spirit for the Go ecosystem: composable, embeddable, and easy to use in Go apps, proxies, and experiments.
 
+## Installation
 
-🔄 Relationship to Other Projects
----------------------------------
+```sh
+go get github.com/TransIRC/cesiumlib
+```
 
-### 🌐 [`cesium-core`](https://github.com/TransIRC/cesium-core)
+## Quick Start
 
-Cesium is built entirely on top of [`cesium-core`](https://github.com/TransIRC/cesium-core), a Go library that handles DNS-based `net.Conn` style streams. It does all the heavy lifting --- packet encoding, DNS query/response formatting, fragmentation, keepalives, etc.
+### 1. Running a DNS tunnel server
 
-You can use `cesium-core` directly in your own Go applications to embed DNS tunnels as part of larger systems.
+```go
+package main
 
-* * * * *
+import (
+	"log"
+	"net"
+	"github.com/TransIRC/cesiumlib/cesiumcore"
+)
 
-### 🪱 [`TapeWorm`](https://github.com/TransIRC/TapeWorm)
+func main() {
+	addr := ":5353"
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 5353})
+	if err != nil {
+		log.Fatal(err)
+	}
+	domain := "mytunnel.example.com"
+	password := "secret"
+	err = cesiumcore.AcceptServerDnsTunnelConns(udpConn, domain, password, func(conn net.Conn) {
+		defer conn.Close()
+		buffer := make([]byte, 4096)
+		for {
+			n, err := conn.Read(buffer)
+			if err != nil {
+				return
+			}
+			log.Printf("Received: %s", buffer[:n])
+			conn.Write([]byte("pong"))
+		}
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+```
 
-[TapeWorm](https://github.com/TransIRC/TapeWorm) is a higher-level tool also built on `cesium-core`. It creates:
+### 2. Connecting as a client
 
--   A DNS **server** that terminates DNS tunnels and **forwards to an SSH server**, injecting the user's real IP via the **PROXY protocol**.
+```go
+package main
 
--   A DNS tunneling **client** that acts as an **SSH client**, allowing you to log in over DNS.
+import (
+	"log"
+	"github.com/TransIRC/cesiumlib/cesiumcore"
+)
 
+func main() {
+	serverAddr := "8.8.8.8:53" // Replace with your server's IP/port
+	domain := "mytunnel.example.com"
+	password := "secret"
+	conn, err := cesiumcore.NewDnsTunnelConn(serverAddr, domain, password)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	conn.Write([]byte("ping"))
+	buffer := make([]byte, 4096)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Got: %s", buffer[:n])
+}
+```
 
-* * * * *
+## Configuration
 
+Tweak tunneling parameters using `cesiumcore.Configure()`:
 
-🧪 Example Use Cases
---------------------
+```go
+cesiumcore.Configure(cesiumcore.Config{
+    ClientRawChunkSize: 32,
+    FlowControlWindow:  8,
+    // etc...
+})
+```
 
--   Bypass restrictive firewalls by tunneling through DNS.
+## Security & Caveats
 
--   Get internet access on captive portals or limited networks.
+- **cesiumlib** is for educational, research, and authorized security work only.
+- Tunneling over DNS may break terms of service or laws in your jurisdiction.
+- The protocol here does not encrypt payloads—use TLS over the tunnel if you need confidentiality.
 
--   Lightweight tunnel from Windows environments without admin rights.
+## Inspiration
 
--   Use with `curl`, `ssh`, or full browsers through the SOCKS5 proxy.
-
-* * * * *
-
+- **iodine** by Björn Andersson: https://github.com/yarrick/iodine
